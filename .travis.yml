@@ -1,9 +1,12 @@
 language: node_js
 cache: yarn
 node_js:
-  - stable
+  - node
+  - "10"
   - "8"
-  - "6"
-  - "4"
 install:
-  - YARN_IGNORE_ENGINES=true yarn
+  - yarn install --ignore-engines
+matrix:
+  include:
+    node_js: "6"
+    env: ESTIMO_DISABLE=1

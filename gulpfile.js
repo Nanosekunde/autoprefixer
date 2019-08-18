@@ -1,88 +1,116 @@
-const gulp = require('gulp');
-const path = require('path');
-const fs   = require('fs-extra');
+let gulp = require('gulp')
+let fs = require('fs-extra')
+let postcss = require('gulp-postcss')
+let rename = require('gulp-rename')
 
-gulp.task('clean', (done) => {
-    fs.remove(path.join(__dirname, 'autoprefixer.js'), () => {
-        fs.remove(path.join(__dirname, 'build'), done);
-    });
-});
+function join (...folderPath) { return folderPath.join('/') }
 
-gulp.task('build:lib', ['clean'], () => {
-    const babel = require('gulp-babel');
+gulp.task('clean', done => {
+  fs.remove(join(__dirname, 'autoprefixer.js'), () => {
+    fs.remove(join(__dirname, 'build'), done)
+  })
+})
 
-    return gulp.src(['{lib,data}/**/*.js'])
-        .pipe(babel())
-        .pipe(gulp.dest('build/'));
-});
+gulp.task('build:lib', gulp.series('clean', () => {
+  let babel = require('gulp-babel')
 
-gulp.task('build:docs', ['clean'], () => {
-    const ignore = require('fs').readFileSync('.npmignore').toString()
-        .trim().split(/\n+/)
-        .concat(['.npmignore', 'index.js', 'package.json', 'logo.svg'])
-        .map((i) => '!' + i);
+  return gulp.src(['{lib,data}/**/*.js'])
+    .pipe(babel())
+    .pipe(gulp.dest('build/'))
+}))
 
-    return gulp.src(['*'].concat(ignore))
-        .pipe(gulp.dest('build'));
-});
+gulp.task('build:docs', () => {
+  let ignore = require('fs').readFileSync('.npmignore').toString()
+    .trim().split(/\n+/)
+    .concat(['.npmignore', 'index.js', 'package.json', 'logo.svg', 'AUTHORS'])
+    .map(i => '!' + i)
 
-gulp.task('build:bin', ['clean'], () => {
-    return gulp.src('bin/*').pipe(gulp.dest('build/bin'));
-});
+  return gulp.src(['*'].concat(ignore))
+    .pipe(gulp.dest('build'))
+})
 
-gulp.task('build:package', ['clean'], () => {
-    const editor = require('gulp-json-editor');
+gulp.task('build:bin', () => {
+  return gulp.src('bin/*').pipe(gulp.dest('build/bin'))
+})
 
-    return gulp.src('./package.json')
-        .pipe(editor((json) => {
-            json.main = 'lib/autoprefixer';
-            json.devDependencies['babel-register'] =
-                json.dependencies['babel-register'];
-            delete json.dependencies['babel-register'];
-            delete json.babel;
-            delete json.scripts;
-            delete json.jest;
-            delete json.eslintConfig;
-            delete json['size-limit'];
-            delete json['pre-commit'];
-            delete json['lint-staged'];
-            delete json.devDependencies;
-            return json;
-        }))
-        .pipe(gulp.dest('build'));
-});
+gulp.task('build:package', () => {
+  let editor = require('gulp-json-editor')
 
-gulp.task('build', ['build:lib', 'build:docs', 'build:bin', 'build:package']);
+  return gulp.src('./package.json')
+    .pipe(editor(json => {
+      json.main = 'lib/autoprefixer'
+      delete json.devDependencies
+      delete json.babel
+      delete json.scripts
+      delete json.jest
+      delete json.browserslist
+      delete json.eslintConfig
+      delete json['size-limit']
+      delete json['husky']
+      delete json['lint-staged']
+      delete json.dependencies['@babel/register']
+      return json
+    }))
+    .pipe(gulp.dest('build'))
+})
 
-gulp.task('standalone', ['build:lib'], (done) => {
-    const builder = require('browserify')({
-        basedir:    path.join(__dirname, 'build'),
-        standalone: 'autoprefixer'
-    });
-    builder.add('./lib/autoprefixer.js');
+gulp.task('build', gulp.series(
+  'clean',
+  gulp.parallel('build:lib', 'build:docs', 'build:bin', 'build:package')
+))
 
-    builder
-        .transform('babelify', {
-            global: true,
-            presets: [
-                ['env', { node: '0.10', loose: true }]
-            ]
-        })
-        .bundle((error, build) => {
-            if (error) throw error;
+gulp.task('standalone', gulp.series('clean', 'build:lib', done => {
+  let builder = require('browserify')({
+    basedir: join(__dirname, 'build'),
+    standalone: 'autoprefixer'
+  })
+  builder.add('./lib/autoprefixer.js')
 
-            fs.removeSync(path.join(__dirname, 'build'));
+  builder
+    .transform('babelify', {
+      global: true,
+      presets: [
+        [
+          '@babel/env', {
+            targets: {
+              node: 6
+            },
+            loose: true
+          }
+        ]
+      ]
+    })
+    .bundle((error, build) => {
+      if (error) throw error
 
-            const rails = path.join(__dirname, '..', 'autoprefixer-rails',
-                'vendor', 'autoprefixer.js');
-            if (fs.existsSync(rails)) {
-                fs.writeFileSync(rails, build);
-            } else {
-                const out = path.join(__dirname, 'autoprefixer.js');
-                fs.writeFileSync(out, build);
-            }
-            done();
-        });
-});
+      fs.removeSync(join(__dirname, 'build'))
 
-gulp.task('default', ['build']);
+      let rails = join(__dirname, '..', 'autoprefixer-rails',
+        'vendor', 'autoprefixer.js')
+      if (fs.existsSync(rails)) {
+        fs.writeFileSync(rails, build)
+      } else {
+        let out = join(__dirname, 'autoprefixer.js')
+        fs.writeFileSync(out, build)
+      }
+      done()
+    })
+}))
+
+gulp.task('compile-playground', () => {
+  let autoprefixer = require('./build')
+  return gulp.src('./playground/input.css')
+    .pipe(rename('output.css'))
+    .pipe(postcss([autoprefixer({ grid: 'autoplace' })]))
+    .pipe(gulp.dest('./playground'))
+})
+
+gulp.task('initialise-playground', gulp.series('build', 'compile-playground'))
+
+gulp.task('watch-playground', () => {
+  return gulp.watch('./playground/input.css', gulp.series('compile-playground'))
+})
+
+gulp.task('play', gulp.series('initialise-playground', 'watch-playground'))
+
+gulp.task('default', gulp.series('build'))
